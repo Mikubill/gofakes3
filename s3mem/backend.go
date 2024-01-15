@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -59,7 +60,7 @@ func New(opts ...Option) *Backend {
 	return b
 }
 
-func (db *Backend) ListBuckets() ([]gofakes3.BucketInfo, error) {
+func (db *Backend) ListBuckets(r *http.Request) ([]gofakes3.BucketInfo, error) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
@@ -74,7 +75,7 @@ func (db *Backend) ListBuckets() ([]gofakes3.BucketInfo, error) {
 	return buckets, nil
 }
 
-func (db *Backend) ListBucket(name string, prefix *gofakes3.Prefix, page gofakes3.ListBucketPage) (*gofakes3.ObjectList, error) {
+func (db *Backend) ListBucket(r *http.Request, name string, prefix *gofakes3.Prefix, page gofakes3.ListBucketPage) (*gofakes3.ObjectList, error) {
 	if prefix == nil {
 		prefix = emptyPrefix
 	}
@@ -133,7 +134,7 @@ func (db *Backend) ListBucket(name string, prefix *gofakes3.Prefix, page gofakes
 	return response, nil
 }
 
-func (db *Backend) CreateBucket(name string) error {
+func (db *Backend) CreateBucket(r *http.Request, name string) error {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
@@ -145,7 +146,7 @@ func (db *Backend) CreateBucket(name string) error {
 	return nil
 }
 
-func (db *Backend) DeleteBucket(name string) error {
+func (db *Backend) DeleteBucket(r *http.Request, name string) error {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
@@ -162,13 +163,13 @@ func (db *Backend) DeleteBucket(name string) error {
 	return nil
 }
 
-func (db *Backend) BucketExists(name string) (exists bool, err error) {
+func (db *Backend) BucketExists(r *http.Request, name string) (exists bool, err error) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 	return db.buckets[name] != nil, nil
 }
 
-func (db *Backend) HeadObject(bucketName, objectName string) (*gofakes3.Object, error) {
+func (db *Backend) HeadObject(r *http.Request, bucketName, objectName string) (*gofakes3.Object, error) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
@@ -185,7 +186,7 @@ func (db *Backend) HeadObject(bucketName, objectName string) (*gofakes3.Object, 
 	return obj.data.toObject(nil, false)
 }
 
-func (db *Backend) GetObject(bucketName, objectName string, rangeRequest *gofakes3.ObjectRangeRequest) (*gofakes3.Object, error) {
+func (db *Backend) GetObject(r *http.Request, bucketName, objectName string, rangeRequest *gofakes3.ObjectRangeRequest) (*gofakes3.Object, error) {
 	db.lock.RLock()
 	defer db.lock.RUnlock()
 
@@ -217,7 +218,7 @@ func (db *Backend) GetObject(bucketName, objectName string, rangeRequest *gofake
 	return result, nil
 }
 
-func (db *Backend) PutObject(bucketName, objectName string, meta map[string]string, input io.Reader, size int64) (result gofakes3.PutObjectResult, err error) {
+func (db *Backend) PutObject(r *http.Request, bucketName, objectName string, meta map[string]string, input io.Reader, size int64) (result gofakes3.PutObjectResult, err error) {
 	// No need to lock the backend while we read the data into memory; it holds
 	// the write lock open unnecessarily, and could be blocked for an unreasonably
 	// long time by a connection timing out:
@@ -226,7 +227,7 @@ func (db *Backend) PutObject(bucketName, objectName string, meta map[string]stri
 		return result, err
 	}
 
-	err = gofakes3.MergeMetadata(db, bucketName, objectName, meta)
+	err = gofakes3.MergeMetadata(r, db, bucketName, objectName, meta)
 	if err != nil {
 		return result, err
 	}
@@ -260,9 +261,9 @@ func (db *Backend) PutObject(bucketName, objectName string, meta map[string]stri
 	return result, nil
 }
 
-func (db *Backend) CopyObject(srcBucket, srcKey, dstBucket, dstKey string, meta map[string]string) (result gofakes3.CopyObjectResult, err error) {
+func (db *Backend) CopyObject(r *http.Request, srcBucket, srcKey, dstBucket, dstKey string, meta map[string]string) (result gofakes3.CopyObjectResult, err error) {
 
-	c, err := db.GetObject(srcBucket, srcKey, nil)
+	c, err := db.GetObject(r, srcBucket, srcKey, nil)
 	if err != nil {
 		return
 	}
@@ -274,7 +275,7 @@ func (db *Backend) CopyObject(srcBucket, srcKey, dstBucket, dstKey string, meta 
 		}
 	}
 
-	_, err = db.PutObject(dstBucket, dstKey, meta, c.Contents, c.Size)
+	_, err = db.PutObject(r, dstBucket, dstKey, meta, c.Contents, c.Size)
 	if err != nil {
 		return
 	}
@@ -285,7 +286,7 @@ func (db *Backend) CopyObject(srcBucket, srcKey, dstBucket, dstKey string, meta 
 	}, nil
 }
 
-func (db *Backend) DeleteObject(bucketName, objectName string) (result gofakes3.ObjectDeleteResult, rerr error) {
+func (db *Backend) DeleteObject(r *http.Request, bucketName, objectName string) (result gofakes3.ObjectDeleteResult, rerr error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
@@ -297,7 +298,7 @@ func (db *Backend) DeleteObject(bucketName, objectName string) (result gofakes3.
 	return bucket.rm(objectName, db.timeSource.Now())
 }
 
-func (db *Backend) DeleteMulti(bucketName string, objects ...string) (result gofakes3.MultiDeleteResult, err error) {
+func (db *Backend) DeleteMulti(r *http.Request, bucketName string, objects ...string) (result gofakes3.MultiDeleteResult, err error) {
 	db.lock.Lock()
 	defer db.lock.Unlock()
 
