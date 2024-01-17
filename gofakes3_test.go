@@ -24,6 +24,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
+var mockR, _ = http.NewRequest(http.MethodGet, "http://localhost:9000", nil)
+
 func TestCreateBucket(t *testing.T) {
 	//@TODO(jb): implement them for sanity reasons
 
@@ -374,7 +376,7 @@ func TestCopyObject(t *testing.T) {
 		ts.Fatal("bad etag", *out.CopyObjectResult.ETag)
 	}
 
-	obj, err := ts.backend.GetObject(defaultBucket, "dst-key", nil)
+	obj, err := ts.backend.GetObject(mockR, defaultBucket, "dst-key", nil)
 	ts.OK(err)
 
 	defer obj.Contents.Close()
