@@ -51,3 +51,7 @@ func (c credentialHeader) getScope() string {
 		c.scope.request,
 	}, slashSeparator)
 }
+
+func (c credentialHeader) GetAccessKey() string {
+	return c.accessKey
+}
