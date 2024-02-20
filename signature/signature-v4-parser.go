@@ -89,7 +89,7 @@ func extractFields(signElement, fieldName string) (string, ErrorCode) {
 // Parses signature version '4' header of the following form.
 //
 //	Authorization: algorithm Credential=accessKeyID/credScope,  SignedHeaders=signedHeaders, Signature=signature
-func parseSignV4(v4Auth string) (sv signValues, err ErrorCode) {
+func ParseSignV4(v4Auth string) (sv signValues, err ErrorCode) {
 
 	if !strings.HasPrefix(v4Auth, signV4Algorithm) {
 		return sv, errUnsupportAlgorithm

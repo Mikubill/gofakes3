@@ -139,7 +139,7 @@ func V4SignVerify(r *http.Request) ErrorCode {
 	v4Auth := req.Header.Get(headerAuth)
 
 	// Parse signature version '4' header.
-	signV4Values, Err := parseSignV4(v4Auth)
+	signV4Values, Err := ParseSignV4(v4Auth)
 	if Err != ErrNone {
 		return Err
 	}
