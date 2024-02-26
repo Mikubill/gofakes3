@@ -184,7 +184,7 @@ func (g *GoFakeS3) httpError(w http.ResponseWriter, r *http.Request, err error) 
 }
 
 func (g *GoFakeS3) listBuckets(w http.ResponseWriter, r *http.Request) error {
-	buckets, err := g.storage.ListBuckets(r)
+	buckets, err := g.storage.ListBuckets(r.Context())
 	if err != nil {
 		return err
 	}
@@ -230,7 +230,8 @@ func (g *GoFakeS3) listBucket(bucketName string, w http.ResponseWriter, r *http.
 
 	g.log.Print(LogInfo, "bucketname:", bucketName, "prefix:", prefix, "page:", fmt.Sprintf("%+v", page))
 
-	objects, err := g.storage.ListBucket(r, bucketName, &prefix, page)
+	ctx := r.Context()
+	objects, err := g.storage.ListBucket(ctx, bucketName, &prefix, page)
 	if err != nil {
 		if err == ErrInternalPageNotImplemented && !g.failOnUnimplementedPage {
 			// We have observed (though not yet confirmed) that simple clients
@@ -238,7 +239,7 @@ func (g *GoFakeS3) listBucket(bucketName string, w http.ResponseWriter, r *http.
 			// default if this is not implemented is to retry without it. If
 			// you care about this performance impact for some weird reason,
 			// you'll need to handle it yourself.
-			objects, err = g.storage.ListBucket(r, bucketName, &prefix, ListBucketPage{})
+			objects, err = g.storage.ListBucket(ctx, bucketName, &prefix, ListBucketPage{})
 			if err != nil {
 				return err
 			}
@@ -382,7 +383,7 @@ func (g *GoFakeS3) createBucket(bucket string, w http.ResponseWriter, r *http.Re
 	if err := ValidateBucketName(bucket); err != nil {
 		return err
 	}
-	if err := g.storage.CreateBucket(r, bucket); err != nil {
+	if err := g.storage.CreateBucket(r.Context(), bucket); err != nil {
 		return err
 	}
 
@@ -399,7 +400,7 @@ func (g *GoFakeS3) deleteBucket(bucket string, w http.ResponseWriter, r *http.Re
 	if err := g.ensureBucketExists(r, bucket); err != nil {
 		return err
 	}
-	if err := g.storage.DeleteBucket(r, bucket); err != nil {
+	if err := g.storage.DeleteBucket(r.Context(), bucket); err != nil {
 		return err
 	}
 
@@ -443,7 +444,7 @@ func (g *GoFakeS3) getObject(
 
 	{ // get object from backend
 		if versionID == "" {
-			obj, err = g.storage.GetObject(r, bucket, object, rnge)
+			obj, err = g.storage.GetObject(r.Context(), bucket, object, rnge)
 			if err != nil {
 				return err
 			}
@@ -524,7 +525,7 @@ func (g *GoFakeS3) headObject(
 		return err
 	}
 
-	obj, err := g.storage.HeadObject(r, bucket, object)
+	obj, err := g.storage.HeadObject(r.Context(), bucket, object)
 	if err != nil {
 		return err
 	}
@@ -593,7 +594,7 @@ func (g *GoFakeS3) createObjectBrowserUpload(bucket string, w http.ResponseWrite
 		return err
 	}
 
-	result, err := g.storage.PutObject(r, bucket, key, meta, rdr, fileHeader.Size)
+	result, err := g.storage.PutObject(r.Context(), bucket, key, meta, rdr, fileHeader.Size)
 	if err != nil {
 		return err
 	}
@@ -667,7 +668,7 @@ func (g *GoFakeS3) createObject(bucket, object string, w http.ResponseWriter, r 
 		return err
 	}
 
-	result, err := g.storage.PutObject(r, bucket, object, meta, rdr, size)
+	result, err := g.storage.PutObject(r.Context(), bucket, object, meta, rdr, size)
 	if err != nil {
 		return err
 	}
@@ -703,7 +704,8 @@ func (g *GoFakeS3) copyObject(bucket, object string, meta map[string]string, w h
 	if err != nil {
 		return err
 	}
-	srcObj, err := g.storage.HeadObject(r, srcBucket, srcKey)
+	ctx := r.Context()
+	srcObj, err := g.storage.HeadObject(ctx, srcBucket, srcKey)
 	if err != nil {
 		return err
 	}
@@ -726,7 +728,7 @@ func (g *GoFakeS3) copyObject(bucket, object string, meta map[string]string, w h
 	// }
 	delete(meta, "X-Amz-Acl")
 
-	result, err := g.storage.CopyObject(r, srcBucket, srcKey, bucket, object, meta)
+	result, err := g.storage.CopyObject(ctx, srcBucket, srcKey, bucket, object, meta)
 	if err != nil {
 		return err
 	}
@@ -749,7 +751,7 @@ func (g *GoFakeS3) deleteObject(bucket, object string, w http.ResponseWriter, r 
 		return err
 	}
 
-	result, err := g.storage.DeleteObject(r, bucket, object)
+	result, err := g.storage.DeleteObject(r.Context(), bucket, object)
 	if err != nil {
 		return err
 	}
@@ -820,7 +822,7 @@ func (g *GoFakeS3) deleteMulti(bucket string, w http.ResponseWriter, r *http.Req
 		keys[i] = o.Key
 	}
 
-	out, err := g.storage.DeleteMulti(r, bucket, keys...)
+	out, err := g.storage.DeleteMulti(r.Context(), bucket, keys...)
 	if err != nil {
 		return err
 	}
@@ -960,7 +962,7 @@ func (g *GoFakeS3) completeMultipartUpload(bucket, object string, uploadID Uploa
 		return err
 	}
 
-	result, err := g.storage.PutObject(r, bucket, object, upload.Meta, bytes.NewReader(fileBody), int64(len(fileBody)))
+	result, err := g.storage.PutObject(r.Context(), bucket, object, upload.Meta, bytes.NewReader(fileBody), int64(len(fileBody)))
 	if err != nil {
 		return err
 	}
@@ -1070,12 +1072,13 @@ func (g *GoFakeS3) putBucketVersioning(bucket string, w http.ResponseWriter, r *
 }
 
 func (g *GoFakeS3) ensureBucketExists(r *http.Request, bucket string) error {
-	exists, err := g.storage.BucketExists(r, bucket)
+	ctx := r.Context()
+	exists, err := g.storage.BucketExists(ctx, bucket)
 	if err != nil {
 		return err
 	}
 	if !exists && g.autoBucket {
-		if err := g.storage.CreateBucket(r, bucket); err != nil {
+		if err := g.storage.CreateBucket(ctx, bucket); err != nil {
 			g.log.Print(LogErr, "autobucket create failed:", err)
 			return ResourceError(ErrNoSuchBucket, bucket)
 		}

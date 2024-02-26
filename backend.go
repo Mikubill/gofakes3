@@ -1,8 +1,8 @@
 package gofakes3
 
 import (
+	"context"
 	"io"
-	"net/http"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 )
@@ -135,7 +135,7 @@ type Backend interface {
 	// ListBuckets returns a list of all buckets owned by the authenticated
 	// sender of the request.
 	// https://docs.aws.amazon.com/AmazonS3/latest/API/RESTServiceGET.html
-	ListBuckets(r *http.Request) ([]BucketInfo, error)
+	ListBuckets(ctx context.Context) ([]BucketInfo, error)
 
 	// ListBucket returns the contents of a bucket. Backends should use the
 	// supplied prefix to limit the contents of the bucket and to sort the
@@ -156,18 +156,18 @@ type Backend interface {
 	// work fine if you ignore the pagination request, but this may not suit
 	// your application. Not all backends bundled with gofakes3 correctly
 	// support this pagination yet, but that will change.
-	ListBucket(r *http.Request, name string, prefix *Prefix, page ListBucketPage) (*ObjectList, error)
+	ListBucket(ctx context.Context, name string, prefix *Prefix, page ListBucketPage) (*ObjectList, error)
 
 	// CreateBucket creates the bucket if it does not already exist. The name
 	// should be assumed to be a valid name.
 	//
 	// If the bucket already exists, a gofakes3.ResourceError with
 	// gofakes3.ErrBucketAlreadyExists MUST be returned.
-	CreateBucket(r *http.Request, name string) error
+	CreateBucket(ctx context.Context, name string) error
 
 	// BucketExists should return a boolean indicating the bucket existence, or
 	// an error if the backend was unable to determine existence.
-	BucketExists(r *http.Request, name string) (exists bool, err error)
+	BucketExists(ctx context.Context, name string) (exists bool, err error)
 
 	// DeleteBucket deletes a bucket if and only if it is empty.
 	//
@@ -177,7 +177,7 @@ type Backend interface {
 	// If the bucket does not exist, gofakes3.ErrNoSuchBucket MUST be returned.
 	//
 	// AWS does not validate the bucket's name for anything other than existence.
-	DeleteBucket(r *http.Request, name string) error
+	DeleteBucket(ctx context.Context, name string) error
 
 	// GetObject must return a gofakes3.ErrNoSuchKey error if the object does
 	// not exist. See gofakes3.KeyNotFound() for a convenient way to create
@@ -192,7 +192,7 @@ type Backend interface {
 	// implementers MUST return ErrNotImplemented.
 	//
 	// If the backend is a VersionedBackend, GetObject retrieves the latest version.
-	GetObject(r *http.Request, bucketName, objectName string, rangeRequest *ObjectRangeRequest) (*Object, error)
+	GetObject(ctx context.Context, bucketName, objectName string, rangeRequest *ObjectRangeRequest) (*Object, error)
 
 	// HeadObject fetches the Object from the backend, but reading the Contents
 	// will return io.EOF immediately.
@@ -203,7 +203,7 @@ type Backend interface {
 	//
 	// HeadObject should return a NotFound() error if the object does not
 	// exist.
-	HeadObject(r *http.Request, bucketName, objectName string) (*Object, error)
+	HeadObject(ctx context.Context, bucketName, objectName string) (*Object, error)
 
 	// DeleteObject deletes an object from the bucket.
 	//
@@ -221,18 +221,18 @@ type Backend interface {
 	//	delete marker, which becomes the latest version of the object. If there
 	//	isn't a null version, Amazon S3 does not remove any objects.
 	//
-	DeleteObject(r *http.Request, bucketName, objectName string) (ObjectDeleteResult, error)
+	DeleteObject(ctx context.Context, bucketName, objectName string) (ObjectDeleteResult, error)
 
 	// PutObject should assume that the key is valid. The map containing meta
 	// may be nil.
 	//
 	// The size can be used if the backend needs to read the whole reader; use
 	// gofakes3.ReadAll() for this job rather than ioutil.ReadAll().
-	PutObject(r *http.Request, bucketName, key string, meta map[string]string, input io.Reader, size int64) (PutObjectResult, error)
+	PutObject(ctx context.Context, bucketName, key string, meta map[string]string, input io.Reader, size int64) (PutObjectResult, error)
 
-	DeleteMulti(r *http.Request, bucketName string, objects ...string) (MultiDeleteResult, error)
+	DeleteMulti(ctx context.Context, bucketName string, objects ...string) (MultiDeleteResult, error)
 
-	CopyObject(r *http.Request, srcBucket, srcKey, dstBucket, dstKey string, meta map[string]string) (CopyObjectResult, error)
+	CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string, meta map[string]string) (CopyObjectResult, error)
 }
 
 // VersionedBackend may be optionally implemented by a Backend in order to support
@@ -309,9 +309,9 @@ type VersionedBackend interface {
 	ListBucketVersions(bucketName string, prefix *Prefix, page *ListBucketVersionsPage) (*ListBucketVersionsResult, error)
 }
 
-func MergeMetadata(r *http.Request, db Backend, bucketName string, objectName string, meta map[string]string) error {
+func MergeMetadata(ctx context.Context, db Backend, bucketName string, objectName string, meta map[string]string) error {
 	// get potential existing object to potentially carry metadata over
-	existingObj, err := db.GetObject(r, bucketName, objectName, nil)
+	existingObj, err := db.GetObject(ctx, bucketName, objectName, nil)
 	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() != string(ErrNoSuchKey) {
 			return err
