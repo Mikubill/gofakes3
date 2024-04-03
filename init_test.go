@@ -6,6 +6,7 @@ package gofakes3_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/base64"
@@ -205,7 +206,7 @@ func newTestServer(t *testing.T, opts ...testServerOption) *testServer {
 	ts.server = httptest.NewServer(ts.GoFakeS3.Server())
 
 	for _, bucket := range ts.initialBuckets {
-		ts.TT.OK(ts.backend.CreateBucket(mockR, bucket))
+		ts.TT.OK(ts.backend.CreateBucket(mockR.Context(), bucket))
 	}
 
 	if ts.versioning {
@@ -230,14 +231,14 @@ func (ts *testServer) url(url string) string {
 
 func (ts *testServer) backendCreateBucket(bucket string) {
 	ts.Helper()
-	if err := ts.backend.CreateBucket(mockR, bucket); err != nil {
+	if err := ts.backend.CreateBucket(mockR.Context(), bucket); err != nil {
 		ts.Fatal("create bucket failed", err)
 	}
 }
 
 func (ts *testServer) backendObjectExists(bucket, key string) bool {
 	ts.Helper()
-	obj, err := ts.backend.HeadObject(mockR, bucket, key)
+	obj, err := ts.backend.HeadObject(mockR.Context(), bucket, key)
 	if err != nil {
 		if hasErrorCode(err, gofakes3.ErrNoSuchKey) {
 			return false
@@ -250,17 +251,17 @@ func (ts *testServer) backendObjectExists(bucket, key string) bool {
 
 func (ts *testServer) backendPutString(bucket, key string, meta map[string]string, in string) {
 	ts.Helper()
-	ts.OKAll(ts.backend.PutObject(mockR, bucket, key, meta, strings.NewReader(in), int64(len(in))))
+	ts.OKAll(ts.backend.PutObject(mockR.Context(), bucket, key, meta, strings.NewReader(in), int64(len(in))))
 }
 
 func (ts *testServer) backendPutBytes(bucket, key string, meta map[string]string, in []byte) {
 	ts.Helper()
-	ts.OKAll(ts.backend.PutObject(mockR, bucket, key, meta, bytes.NewReader(in), int64(len(in))))
+	ts.OKAll(ts.backend.PutObject(mockR.Context(), bucket, key, meta, bytes.NewReader(in), int64(len(in))))
 }
 
 func (ts *testServer) backendGetString(bucket, key string, rnge *gofakes3.ObjectRangeRequest) string {
 	ts.Helper()
-	obj, err := ts.backend.GetObject(mockR, bucket, key, rnge)
+	obj, err := ts.backend.GetObject(mockR.Context(), bucket, key, rnge)
 	ts.OK(err)
 
 	defer obj.Contents.Close()
@@ -608,7 +609,7 @@ func (ts *testServer) assertListMultipartUploads(
 func (ts *testServer) assertObject(bucket string, object string, meta map[string]string, contents interface{}) {
 	ts.Helper()
 
-	obj, err := ts.backend.GetObject(mockR, bucket, object, nil)
+	obj, err := ts.backend.GetObject(mockR.Context(), bucket, object, nil)
 	ts.OK(err)
 	defer obj.Contents.Close()
 
@@ -829,11 +830,11 @@ type backendWithUnimplementedPaging struct {
 	gofakes3.Backend
 }
 
-func (b *backendWithUnimplementedPaging) ListBucket(r *http.Request, name string, prefix *gofakes3.Prefix, page gofakes3.ListBucketPage) (*gofakes3.ObjectList, error) {
+func (b *backendWithUnimplementedPaging) ListBucket(ctx context.Context, name string, prefix *gofakes3.Prefix, page gofakes3.ListBucketPage) (*gofakes3.ObjectList, error) {
 	if !page.IsEmpty() {
 		return nil, gofakes3.ErrInternalPageNotImplemented
 	}
-	return b.Backend.ListBucket(mockR, name, prefix, page)
+	return b.Backend.ListBucket(mockR.Context(), name, prefix, page)
 }
 
 type rawClient struct {
