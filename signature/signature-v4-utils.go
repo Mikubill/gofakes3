@@ -12,7 +12,7 @@ var (
 // extractSignedHeaders extract signed headers from Authorization header
 func extractSignedHeaders(signedHeaders []string, r *http.Request) (http.Header, ErrorCode) {
 	reqHeaders := r.Header
-	reqQueries := r.Form
+	reqQueries := r.URL.Query()
 	// find whether "host" is part of list of signed headers.
 	// if not return ErrUnsignedHeaders. "host" is mandatory.
 	if !contains(signedHeaders, "host") {

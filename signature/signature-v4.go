@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -25,6 +26,11 @@ const (
 	headerDate       = "Date"
 	amzContentSha256 = "X-Amz-Content-Sha256"
 	amzDate          = "X-Amz-Date"
+	amzAlgorithm     = "X-Amz-Algorithm"
+	amzCredential    = "X-Amz-Credential"
+	amzSignedHeaders = "X-Amz-SignedHeaders"
+	amzSignature     = "X-Amz-Signature"
+	amzexpires       = "X-Amz-Expires"
 )
 
 // getCanonicalHeaders generate a list of request headers with their values
@@ -133,10 +139,21 @@ func getSigningKey(secretKey string, t time.Time, region string) []byte {
 func V4SignVerify(r *http.Request) ErrorCode {
 	// Copy request.
 	req := *r
-	hashedPayload := getContentSha256Cksum(r)
+	queryf := req.URL.Query()
+	isUnsignedPayload := req.Header.Get("X-Amz-Content-Sha256") == "UNSIGNED-PAYLOAD"
 
 	// Save authorization header.
 	v4Auth := req.Header.Get(headerAuth)
+
+	// If the header is empty but the query string has the signature, then it's QueryString authentication. (https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html)
+	if v4Auth == "" && queryf.Get(amzSignature) != "" {
+		// QueryString authentications are always "UNSIGNED-PAYLOAD".
+		isUnsignedPayload = true
+		v4Auth = fmt.Sprintf("%s Credential=%s, SignedHeaders=%s, Signature=%s", queryf.Get(amzAlgorithm), queryf.Get(amzCredential), queryf.Get(amzSignedHeaders), queryf.Get(amzSignature))
+		if queryf.Get(amzCredential) == "" {
+			return errMissingCredTag
+		}
+	}
 
 	// Parse signature version '4' header.
 	signV4Values, Err := ParseSignV4(v4Auth)
@@ -155,12 +172,18 @@ func V4SignVerify(r *http.Request) ErrorCode {
 		return ErrCode
 	}
 
-	// Extract date, if not present throw Error.
-	var date string
-	if date = req.Header.Get(amzDate); date == "" {
-		if date = r.Header.Get(headerDate); date == "" {
-			return errMissingDateHeader
-		}
+	// Extract date from various possible sources
+	date := req.Header.Get(amzDate)
+	if date == "" {
+		date = req.Header.Get(headerDate)
+	}
+	if date == "" {
+		date = queryf.Get(amzDate)
+	}
+
+	// If date is still empty after checking all sources, return an error
+	if date == "" {
+		return errMissingDateHeader
 	}
 
 	// Parse date header.
@@ -170,19 +193,24 @@ func V4SignVerify(r *http.Request) ErrorCode {
 	}
 
 	// Query string.
-	queryStr := req.URL.RawQuery
-
-	// Get canonical request.
-	canonicalRequest := getCanonicalRequest(extractedSignedHeaders, hashedPayload, queryStr, req.URL.Path, req.Method)
-
-	// Get string to sign from canonical request.
-	stringToSign := getStringToSign(canonicalRequest, t, signV4Values.Credential.getScope())
+	queryf.Del(amzSignature)
+	rawquery := queryf.Encode()
 
 	// Get hmac signing key.
 	signingKey := getSigningKey(cred.SecretKey, signV4Values.Credential.scope.date, signV4Values.Credential.scope.region)
 
-	// Calculate signature.
-	newSignature := getSignature(signingKey, stringToSign)
+	var newSignature string
+	if isUnsignedPayload {
+		hashedPayload := "UNSIGNED-PAYLOAD"
+		canonicalRequest := getCanonicalRequest(extractedSignedHeaders, hashedPayload, rawquery, req.URL.Path, req.Method)
+		stringToSign := getStringToSign(canonicalRequest, t, signV4Values.Credential.getScope())
+		newSignature = getSignature(signingKey, stringToSign)
+	} else {
+		hashedPayload := getContentSha256Cksum(r)
+		canonicalRequest := getCanonicalRequest(extractedSignedHeaders, hashedPayload, rawquery, req.URL.Path, req.Method)
+		stringToSign := getStringToSign(canonicalRequest, t, signV4Values.Credential.getScope())
+		newSignature = getSignature(signingKey, stringToSign)
+	}
 
 	// Verify if signature match.
 	if !compareSignatureV4(newSignature, signV4Values.Signature) {
