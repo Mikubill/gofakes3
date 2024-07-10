@@ -8,8 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+)
+
+var (
+	// TimeNow is a variable that holds the function to get the current time
+	TimeNow = time.Now
 )
 
 // ref: https://github.com/minio/minio/cmd/auth-handler.go
@@ -30,7 +36,7 @@ const (
 	amzCredential    = "X-Amz-Credential"
 	amzSignedHeaders = "X-Amz-SignedHeaders"
 	amzSignature     = "X-Amz-Signature"
-	amzexpires       = "X-Amz-Expires"
+	amzExpires       = "X-Amz-Expires"
 )
 
 // getCanonicalHeaders generate a list of request headers with their values
@@ -190,6 +196,23 @@ func V4SignVerify(r *http.Request) ErrorCode {
 	t, e := time.Parse(iso8601Format, date)
 	if e != nil {
 		return errMalformedDate
+	}
+
+	// Check expiration
+	expiresStr := queryf.Get(amzExpires)
+	var expires time.Duration
+	if expiresStr == "" {
+		// If expires is not set, use the default of 15 minutes
+		expires = 15 * time.Minute
+	} else {
+		expiresInt, err := strconv.ParseInt(expiresStr, 10, 64)
+		if err != nil {
+			return errMalformedExpires
+		}
+		expires = time.Duration(expiresInt) * time.Second
+	}
+	if TimeNow().After(t.Add(expires)) {
+		return errExpiredRequest
 	}
 
 	// Query string.
