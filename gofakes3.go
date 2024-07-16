@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -42,6 +43,7 @@ type GoFakeS3 struct {
 
 	// simple v4 signature
 	v4AuthPair map[string]string
+	mu         sync.RWMutex
 }
 
 // New creates a new GoFakeS3 using the supplied Backend. Backends are pluggable.
@@ -99,6 +101,8 @@ func (g *GoFakeS3) Server() http.Handler {
 }
 
 func (g *GoFakeS3) AddAuthKeys(p map[string]string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	for k, v := range p {
 		g.v4AuthPair[k] = v
 	}
@@ -106,6 +110,8 @@ func (g *GoFakeS3) AddAuthKeys(p map[string]string) {
 }
 
 func (g *GoFakeS3) DelAuthKeys(p []string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	for _, v := range p {
 		delete(g.v4AuthPair, v)
 	}
@@ -114,6 +120,8 @@ func (g *GoFakeS3) DelAuthKeys(p []string) {
 
 func (g *GoFakeS3) authMiddleware(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, rq *http.Request) {
+		g.mu.RLock()
+		defer g.mu.RUnlock()
 		if len(g.v4AuthPair) > 0 {
 			if result := signature.V4SignVerify(rq); result != signature.ErrNone {
 				g.log.Print(LogWarn, "Access Denied:", rq.RemoteAddr, "=>", rq.URL)
